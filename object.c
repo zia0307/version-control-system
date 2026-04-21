@@ -128,6 +128,23 @@ if (object_exists(&id)) {
     return 0;
 }
 	
+	char path[512];
+object_path(&id, path, sizeof(path));
+
+// Create directory (.pes/objects/XX)
+char dir[512];
+snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(path) - strlen(strrchr(path, '/'))), path);
+mkdir(dir, 0755);
+
+// Temp file path
+char temp_path[512];
+snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+
+int fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+if (fd < 0) {
+    free(buffer);
+    return -1;
+}
     (void)type; (void)data; (void)len; (void)id_out;
     return -1;
 }
