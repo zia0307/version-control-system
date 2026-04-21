@@ -93,60 +93,99 @@ int object_exists(const ObjectID *id) {
 
 //
 // Returns 0 on success, -1 on error.
+
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // TODO: Implement
-	char header[64];
-const char *type_str;
+    char header[64];
+    const char *type_str;
 
-switch (type) {
-    case OBJ_BLOB: type_str = "blob"; break;
-    case OBJ_TREE: type_str = "tree"; break;
-    case OBJ_COMMIT: type_str = "commit"; break;
-    default: return -1;
-}
+    switch (type) {
+        case OBJ_BLOB: type_str = "blob"; break;
+        case OBJ_TREE: type_str = "tree"; break;
+        case OBJ_COMMIT: type_str = "commit"; break;
+        default: return -1;
+    }
 
-int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
+    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, len) + 1;
 
-// Allocate buffer for header + data
-size_t total_len = header_len + len;
-unsigned char *buffer = malloc(total_len);
-if (!buffer) return -1;
+    // Allocate buffer for header + data
+    size_t total_len = header_len + len;
+    unsigned char *buffer = malloc(total_len);
+    if (!buffer) return -1;
 
-// Copy header + data
-memcpy(buffer, header, header_len);
-memcpy(buffer + header_len, data, len);
+    // Copy header + data
+    memcpy(buffer, header, header_len);
+    memcpy(buffer + header_len, data, len);
 
-ObjectID id;
-compute_hash(buffer, total_len, &id);
+    // Compute hash
+    ObjectID id;
+    compute_hash(buffer, total_len, &id);
 
-if (id_out) {
-    *id_out = id;
-}
+    if (id_out) {
+        *id_out = id;
+    }
 
-if (object_exists(&id)) {
+    // Deduplication
+    if (object_exists(&id)) {
+        free(buffer);
+        return 0;
+    }
+
+    // Get object path
+    char path[512];
+    object_path(&id, path, sizeof(path));
+
+    // Extract directory path (.pes/objects/XX)
+    char dir[512];
+    strncpy(dir, path, sizeof(dir));
+
+    char *slash = strrchr(dir, '/');
+    if (!slash) {
+        free(buffer);
+        return -1;
+    }
+    *slash = '\0';
+
+    // Create directory if needed
+    mkdir(dir, 0755);
+
+    // Temp file path
+    char temp_path[512];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+
+    // Open temp file
+    int fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) {
+        free(buffer);
+        return -1;
+    }
+
+    // Write data
+    ssize_t written = write(fd, buffer, total_len);
+    if (written != (ssize_t)total_len) {
+        close(fd);
+        free(buffer);
+        return -1;
+    }
+
+    // Flush file
+    fsync(fd);
+    close(fd);
+
+    // Atomic rename
+    if (rename(temp_path, path) != 0) {
+        free(buffer);
+        return -1;
+    }
+
+    // fsync directory
+    int dir_fd = open(dir, O_DIRECTORY);
+    if (dir_fd >= 0) {
+        fsync(dir_fd);
+        close(dir_fd);
+    }
+
     free(buffer);
     return 0;
-}
-	
-	char path[512];
-object_path(&id, path, sizeof(path));
-
-// Create directory (.pes/objects/XX)
-char dir[512];
-snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(path) - strlen(strrchr(path, '/'))), path);
-mkdir(dir, 0755);
-
-// Temp file path
-char temp_path[512];
-snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
-
-int fd = open(temp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-if (fd < 0) {
-    free(buffer);
-    return -1;
-}
-    (void)type; (void)data; (void)len; (void)id_out;
-    return -1;
 }
 
 // Read an object from the store.
