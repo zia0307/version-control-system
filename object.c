@@ -121,7 +121,13 @@ compute_hash(buffer, total_len, &id);
 
 if (id_out) {
     *id_out = id;
-}	
+}
+
+if (object_exists(&id)) {
+    free(buffer);
+    return 0;
+}
+	
     (void)type; (void)data; (void)len; (void)id_out;
     return -1;
 }
