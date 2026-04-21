@@ -114,7 +114,14 @@ if (!buffer) return -1;
 
 // Copy header + data
 memcpy(buffer, header, header_len);
-memcpy(buffer + header_len, data, len);	
+memcpy(buffer + header_len, data, len);
+
+ObjectID id;
+compute_hash(buffer, total_len, &id);
+
+if (id_out) {
+    *id_out = id;
+}	
     (void)type; (void)data; (void)len; (void)id_out;
     return -1;
 }
