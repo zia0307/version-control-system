@@ -1,241 +1,248 @@
-PES-VCS — Version Control System in C
-Platform
+# PES-VCS — Version Control System in C
+
+## Platform
 
 Ubuntu 22.04
-Objective
+
+---
+
+## Objective
 
 Build a local version control system that:
 
-    Tracks file changes
+* Tracks file changes
+* Stores snapshots efficiently
+* Supports commit history
 
-    Stores snapshots efficiently
+---
 
-    Supports commit history
+## Build Instructions
 
-Build Instructions
-
+```bash
 make
+```
 
-Usage
+---
 
+## Usage
+
+```bash
 ./pes init
 ./pes add <file>
 ./pes status
 ./pes commit -m "message"
 ./pes log
+```
 
-Implementation Overview
-Object Storage (Phase 1)
+---
 
-    Implemented content-addressable storage using SHA-256
+## Implementation Overview
 
-    Objects stored as:
+### Object Storage (Phase 1)
 
-    "<type> <size>\0<data>"
+* Implemented content-addressable storage using SHA-256
+* Objects stored as:
 
-    Used directory sharding: .pes/objects/XX/...
+  ```
+  "<type> <size>\0<data>"
+  ```
+* Used directory sharding: `.pes/objects/XX/...`
+* Ensured atomic writes using temp file + rename
 
-    Ensured atomic writes using temp file + rename
+---
 
-Tree Objects (Phase 2)
+### Tree Objects (Phase 2)
 
-    Built tree objects from index entries
+* Built tree objects from index entries
+* Each tree entry contains:
 
-    Each tree entry contains:
+  * mode
+  * name
+  * hash
+* Serialization ensures deterministic ordering
+* Stored as binary format
 
-        mode
+---
 
-        name
+### Index / Staging Area (Phase 3)
 
-        hash
+* Text-based index file `.pes/index`
+* Format:
 
-    Serialization ensures deterministic ordering
+  ```
+  <mode> <hash> <mtime> <size> <path>
+  ```
+* Implemented:
 
-    Stored as binary format
+  * index_load
+  * index_save (atomic)
+  * index_add
+* Used metadata (mtime + size) for change detection
 
-Index / Staging Area (Phase 3)
+---
 
-    Text-based index file .pes/index
+### Commits (Phase 4)
 
-    Format:
+* Commit contains:
 
-    <mode> <hash> <mtime> <size> <path>
+  * tree hash
+  * parent hash
+  * author
+  * timestamp
+  * message
+* Stored as text object
+* HEAD updated atomically
+* History implemented via parent pointers
 
-    Implemented:
+---
 
-        index_load
+## Directory Structure
 
-        index_save (atomic)
-
-        index_add
-
-    Used metadata (mtime + size) for change detection
-
-Commits (Phase 4)
-
-    Commit contains:
-
-        tree hash
-
-        parent hash
-
-        author
-
-        timestamp
-
-        message
-
-    Stored as text object
-
-    HEAD updated atomically
-
-    History implemented via parent pointers
-
-Directory Structure
-
+```
 .pes/
 ├── objects/
 ├── refs/heads/
 ├── HEAD
 └── index
+```
 
-Phase 5: Branching and Checkout
-Q5.1
+---
 
-To implement pes checkout <branch>:
+## Phase 5: Branching and Checkout
 
-    Update .pes/HEAD:
+### Q5.1
 
-    ref: refs/heads/<branch>
+To implement `pes checkout <branch>`:
 
-    Read commit hash from branch file
+* Update `.pes/HEAD`:
 
-    Load commit → get tree
+  ```
+  ref: refs/heads/<branch>
+  ```
+* Read commit hash from branch file
+* Load commit → get tree
+* Reconstruct working directory from tree:
 
-    Reconstruct working directory from tree:
+  * write blobs to files
+  * remove extra files
+* Update index to match tree
 
-        write blobs to files
+**Complexity:**
 
-        remove extra files
+* Requires full working directory reconstruction
+* Must avoid overwriting user changes
+* Needs careful file deletion handling
 
-    Update index to match tree
+---
 
-Complexity:
-
-    Requires full working directory reconstruction
-
-    Must avoid overwriting user changes
-
-    Needs careful file deletion handling
-
-Q5.2
+### Q5.2
 
 To detect dirty working directory:
 
-    Compare index with working directory:
+* Compare index with working directory:
 
-        check mtime and size
+  * check mtime and size
+* Compare with target branch:
 
-    Compare with target branch:
+  * if file differs in both → conflict
 
-        if file differs in both → conflict
+**If conflict exists → abort checkout**
 
-If conflict exists → abort checkout
-Q5.3
+---
+
+### Q5.3
 
 Detached HEAD:
 
-    HEAD points directly to a commit hash
+* HEAD points directly to a commit hash
+* New commits are created but not referenced by any branch
 
-    New commits are created but not referenced by any branch
+**Result:**
 
-Result:
+* Commits become unreachable
 
-    Commits become unreachable
+**Recovery:**
 
-Recovery:
+* Create a branch pointing to that commit
 
-    Create a branch pointing to that commit
+---
 
-Phase 6: Garbage Collection
-Q6.1
+## Phase 6: Garbage Collection
+
+### Q6.1
 
 Algorithm:
 
-    Start from all branch heads
+1. Start from all branch heads
+2. Traverse:
 
-    Traverse:
+   * commit → tree → blobs
+3. Mark all reachable objects
+4. Delete unmarked objects
 
-        commit → tree → blobs
+**Data structure:**
 
-    Mark all reachable objects
+* Hash set for tracking reachable hashes
 
-    Delete unmarked objects
+**Scale:**
 
-Data structure:
+* ~100k commits → traverse all reachable objects
 
-    Hash set for tracking reachable hashes
+---
 
-Scale:
-
-    ~100k commits → traverse all reachable objects
-
-Q6.2
+### Q6.2
 
 Race condition:
 
-    Commit creates object
+* Commit creates object
+* GC runs before HEAD update
+* Object not marked reachable → deleted
+* HEAD updated → points to missing object
 
-    GC runs before HEAD update
+**Solution (used by Git):**
 
-    Object not marked reachable → deleted
+* Locking mechanisms
+* Safe GC timing
+* Retaining recent objects (reflog)
 
-    HEAD updated → points to missing object
+---
 
-Solution (used by Git):
+## Features
 
-    Locking mechanisms
+* Content-addressable storage
+* Deduplication via hashing
+* Atomic filesystem operations
+* Snapshot-based versioning
+* Commit history traversal
 
-    Safe GC timing
+---
 
-    Retaining recent objects (reflog)
+## Limitations
 
-Features
+* No branching implementation
+* No merge support
+* No nested directory handling (simplified tree)
+* No checkout command implemented
 
-    Content-addressable storage
+---
 
-    Deduplication via hashing
-
-    Atomic filesystem operations
-
-    Snapshot-based versioning
-
-    Commit history traversal
-
-Limitations
-
-    No branching implementation
-
-    No merge support
-
-    No nested directory handling (simplified tree)
-
-    No checkout command implemented
-
-Author
+## Author
 
 Set using:
 
+```bash
 export PES_AUTHOR="Your Name <SRN>"
+```
 
-Conclusion
+---
+
+## Conclusion
 
 This project demonstrates how version control systems like Git work internally using:
 
-    hashing
+* hashing
+* filesystem structures
+* immutable objects
+* linked commit history
 
-    filesystem structures
-
-    immutable objects
-
-    linked commit history
+---
