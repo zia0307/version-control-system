@@ -8,7 +8,7 @@
 #define TREE_H
 
 #include "pes.h"
-
+#include "index.h"
 #define MAX_TREE_ENTRIES 1024
 
 typedef struct {
@@ -36,6 +36,6 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out);
 // (e.g., "src/main.c"), this function must create subtrees.
 // Writes all tree objects to the object store.
 // Returns the root tree's ObjectID in *id_out.
-int tree_from_index(ObjectID *id_out);
+int tree_from_index(const Index *index, ObjectID *id_out);
 
 #endif // TREE_H

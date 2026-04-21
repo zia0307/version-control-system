@@ -134,10 +134,12 @@ int index_load(Index *index) {
     char line[1024];
 
     while (fgets(line, sizeof(line), f)) {
+        if (index->count >= MAX_INDEX_ENTRIES) break;
+
         IndexEntry *entry = &index->entries[index->count];
         char hash_hex[HASH_HEX_SIZE + 1];
 
-        if (sscanf(line, "%o %s %ld %u %s",
+        if (sscanf(line, "%o %64s %ld %u %511s",
                    &entry->mode,
                    hash_hex,
                    &entry->mtime_sec,
@@ -169,7 +171,8 @@ int index_save(const Index *index) {
     FILE *f = fopen(temp_path, "w");
     if (!f) return -1;
 
-    IndexEntry sorted[1024];
+    IndexEntry *sorted = malloc(index->count * sizeof(IndexEntry));
+    if (!sorted) return -1;
 
     memcpy(sorted, index->entries, index->count * sizeof(IndexEntry));
     qsort(sorted, index->count, sizeof(IndexEntry), compare_entries);
@@ -185,6 +188,8 @@ int index_save(const Index *index) {
                 sorted[i].size,
                 sorted[i].path);
     }
+
+    free(sorted);
 
     fflush(f);
     fsync(fileno(f));
@@ -232,6 +237,10 @@ int index_add(Index *index, const char *path) {
     IndexEntry *entry = index_find(index, path);
 
     if (!entry) {
+        if (index->count >= MAX_INDEX_ENTRIES) {
+            free(buffer);
+            return -1;
+        }
         entry = &index->entries[index->count++];
     }
 
@@ -239,7 +248,7 @@ int index_add(Index *index, const char *path) {
     entry->hash = id;
     entry->mtime_sec = st.st_mtime;
     entry->size = st.st_size;
-    strncpy(entry->path, path, sizeof(entry->path));
+    snprintf(entry->path, sizeof(entry->path), "%s", path);
 
     free(buffer);
 

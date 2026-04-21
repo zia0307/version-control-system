@@ -9,6 +9,7 @@
 // Example single entry (conceptual):
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
+#include "index.h"
 #include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,8 @@
 #define MODE_DIR       0040000
 
 // ─── PROVIDED ───────────────────────────────────────────────────────────────
+
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
 // Determine the object mode for a filesystem path.
 uint32_t get_file_mode(const char *path) {
@@ -101,9 +104,18 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
         const TreeEntry *entry = &sorted_tree.entries[i];
         
         // Write mode and name (%o writes octal correctly for Git standards)
-        int written = sprintf((char *)buffer + offset, "%o %s", entry->mode, entry->name);
-        offset += written + 1; // +1 to step over the null terminator written by sprintf
-        
+       int written = snprintf((char *)buffer + offset,
+                       max_size - offset,
+                       "%o %s",
+                       entry->mode,
+                       entry->name);
+
+if (written < 0 || (size_t)written >= max_size - offset) {
+    free(buffer);
+    return -1;
+}
+
+offset += written + 1;
         // Write binary hash
         memcpy(buffer + offset, entry->hash.hash, HASH_SIZE);
         offset += HASH_SIZE;
@@ -129,9 +141,49 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
-int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
+
+int tree_from_index(const Index *index, ObjectID *id_out) {
+    Tree tree = {0};
+
+    for (int i = 0; i < index->count; i++) {
+        if (tree.count >= MAX_TREE_ENTRIES) {
+            fprintf(stderr, "error: too many tree entries\n");
+            return -1;
+        }
+
+        const IndexEntry *entry = &index->entries[i];
+
+        if (entry->path[0] == '\0') continue;
+
+        TreeEntry *t = &tree.entries[tree.count];
+        t->mode = entry->mode;
+
+        const char *name = strrchr(entry->path, '/');
+        if (name) name++;
+        else name = entry->path;
+
+        snprintf(t->name, sizeof(t->name), "%s", name);
+        t->hash = entry->hash;
+        tree.count++;
+    }
+
+    if (tree.count == 0) {
+        fprintf(stderr, "error: empty tree\n");
+        return -1;
+    }
+
+    void *data = NULL;
+    size_t len = 0;
+
+    if (tree_serialize(&tree, &data, &len) != 0) {
+        return -1;
+    }
+
+    if (object_write(OBJ_TREE, data, len, id_out) != 0) {
+        free(data);
+        return -1;
+    }
+
+    free(data);
+    return 0;
 }
